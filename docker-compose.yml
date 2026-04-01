@@ -1,0 +1,123 @@
+services:
+  # Netbird - for secure remote access
+  netbird-client:
+    container_name: ducklake-netbird-client
+    hostname: uoe-est-lakehouse
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - SYS_RESOURCE
+    network_mode: host
+    environment:
+      - NB_SETUP_KEY=${NB_SETUP_KEY}
+    volumes:
+      - netbird-client:/var/lib/netbird
+    image: netbirdio/netbird:latest
+    restart: unless-stopped
+
+  # Generates /config/garage.toml from environment variables before garage starts
+  garage-config:
+    container_name: ducklake-garage-config
+    image: alpine:latest
+    volumes:
+      - garage-config:/config
+      - ./init/scripts/garage/garage-config.sh:/garage-config.sh:ro
+    environment:
+      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET}
+      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
+      - S3_REGION=${S3_REGION}
+    entrypoint: [ "/bin/sh", "/garage-config.sh" ]
+    restart: "no"
+
+  # Garage - S3-compatible object storage
+  garage:
+    container_name: ducklake-garage
+    image: dxflrs/garage:v2.2.0
+    restart: unless-stopped
+    depends_on:
+      garage-config:
+        condition: service_completed_successfully
+    command: [ "/garage", "-c", "/config/garage.toml", "server" ]
+    ports:
+      - "0.0.0.0:3900:3900"
+    volumes:
+      - garage-config:/config:ro
+      - ${DATA_PATH}/garage/meta:/var/lib/garage/meta
+      - ${DATA_PATH}/garage/data:/var/lib/garage/data
+    networks:
+      - ducklake-network
+
+  garage-init:
+    container_name: ducklake-garage-init
+    build:
+      context: .
+      dockerfile: init/Dockerfile.garage-init
+    network_mode: "service:garage"
+    depends_on:
+      garage:
+        condition: service_started
+    volumes:
+      - garage-config:/config:ro
+      - ${DATA_PATH}/garage/meta:/var/lib/garage/meta:ro
+      - garage-keys:/run/garage-keys
+      - ./init/scripts/garage/garage-init.sh:/garage-init.sh:ro
+    environment:
+      - S3_BUCKET=${S3_BUCKET}
+      - S3_REGION=${S3_REGION}
+    # Remove sleep infinity if you don't want the init container to keep running after setup for garage cli access
+    entrypoint: [ "/bin/sh", "-c", "/garage-init.sh && sleep infinity" ]
+
+  # PostgreSQL - catalog/metadata storage
+  postgres:
+    image: postgres:17
+    container_name: ducklake-postgres
+    ports:
+      - "0.0.0.0:${POSTGRES_PORT}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ducklake-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    networks:
+      - ducklake-network
+    restart: unless-stopped
+
+  # PostgreSQL Backup - Daily backup at 3am. Note the backup will stay on-device unless you sync it elsewhere
+  postgres-backup:
+    image: alpine:latest
+    container_name: ducklake-postgres-backup
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ${DATA_PATH}/backups:/backups
+      - ./init/scripts/backup:/scripts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c " apk add --no-cache postgresql17-client && echo '0 3 * * * /scripts/backup.sh >> /var/log/backup.log 2>&1' > /etc/crontabs/root && chmod +x /scripts/backup.sh && touch /var/log/backup.log && echo 'Backup service ready. Scheduled for 3am UTC daily.' && crond -f -l 2 "
+    restart: unless-stopped
+    networks:
+      - ducklake-network
+
+networks:
+  ducklake-network:
+    driver: bridge
+    driver_opts:
+      # Set MTU to 1100 so that database access works on UoE network
+      com.docker.network.driver.mtu: "1100"
+
+volumes:
+  ducklake-postgres-data:
+  netbird-client:
+  garage-keys:
+  garage-config:

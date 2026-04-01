@@ -1,0 +1,23 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Environment variables
+.env
+
+# vscode settings
+.vscode/
+
+
+# DuckDB database
+uoe_energy.ddb
+uoe_energy.ddb.wal
+init-scripts/duckdb/connect.sql
+auth.md
