@@ -1,6 +1,6 @@
 # UoE Estates Lakehouse
 
-This project initialises all services required to run a local data lakehouse with [DuckLake](https://ducklake.select/). It provisions containerised services for S3-compatible object storage, a PostgreSQL metadata catalogue, and secure remote access.
+This project initialises everything required to run a local data lakehouse with [DuckLake](https://ducklake.select/). It provisions containerised services for single node S3-compatible object storage, a PostgreSQL metadata catalogue (and regular backups), and secure remote access.
 
 ## Project Structure
 
@@ -56,7 +56,7 @@ This project initialises all services required to run a local data lakehouse wit
 | `garage-init` | Custom | Init: configures Garage node, bucket, and S3 key |
 | `postgres-backup` | `alpine` | Nightly PostgreSQL dump at 03:00 UTC |
 
-> **Note:** The container network MTU is set to `1100` to ensure database connectivity on the UoE network.
+> **Note:** The container network MTU is set to `1100` to allow connectivity on the UoE network.
 
 ## Use
 
