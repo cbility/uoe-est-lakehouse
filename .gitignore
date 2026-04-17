@@ -20,4 +20,7 @@ wheels/
 uoe_energy.ddb
 uoe_energy.ddb.wal
 init-scripts/duckdb/connect.sql
+
+# docs
 auth.md
+mounting.md

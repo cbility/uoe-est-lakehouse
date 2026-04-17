@@ -16,57 +16,30 @@ services:
     image: netbirdio/netbird:latest
     restart: unless-stopped
 
-  # Generates /config/garage.toml from environment variables before garage starts
-  garage-config:
-    container_name: ducklake-garage-config
-    image: alpine:latest
-    volumes:
-      - garage-config:/config
-      - ./init/scripts/garage/garage-config.sh:/garage-config.sh:ro
-    environment:
-      - GARAGE_RPC_SECRET=${GARAGE_RPC_SECRET}
-      - GARAGE_ADMIN_TOKEN=${GARAGE_ADMIN_TOKEN}
-      - S3_REGION=${S3_REGION}
-    entrypoint: [ "/bin/sh", "/garage-config.sh" ]
-    restart: "no"
-
-  # Garage - S3-compatible object storage
-  garage:
-    container_name: ducklake-garage
-    image: dxflrs/garage:v2.2.0
+  # Rclone - mounts ownCloud WebDAV and serves it as NFS for query nodes
+  rclone:
+    container_name: ducklake-rclone
+    image: rclone/rclone:latest
     restart: unless-stopped
-    depends_on:
-      garage-config:
-        condition: service_completed_successfully
-    command: [ "/garage", "-c", "/config/garage.toml", "server" ]
+    environment:
+      - RCLONE_WEBDAV_VENDOR=${RCLONE_WEBDAV_VENDOR}
+      - RCLONE_WEBDAV_URL=${RCLONE_WEBDAV_URL}
+      - RCLONE_WEBDAV_USER=${RCLONE_WEBDAV_USER}
+      - RCLONE_WEBDAV_PASS=${RCLONE_WEBDAV_PASS}
+    command:
+      - serve
+      - nfs
+      - ":webdav:"
+      - --addr
+      - 0.0.0.0:2049
+      - --vfs-cache-mode
+      - writes
     ports:
-      - "0.0.0.0:3900:3900"
+      - "0.0.0.0:2049:2049"
     volumes:
-      - garage-config:/config:ro
-      - ${DATA_PATH}/garage/meta:/var/lib/garage/meta
-      - ${DATA_PATH}/garage/data:/var/lib/garage/data
+      - ${DATA_PATH}/rclone/cache:/root/.cache/rclone
     networks:
       - ducklake-network
-
-  garage-init:
-    container_name: ducklake-garage-init
-    build:
-      context: .
-      dockerfile: init/Dockerfile.garage-init
-    network_mode: "service:garage"
-    depends_on:
-      garage:
-        condition: service_started
-    volumes:
-      - garage-config:/config:ro
-      - ${DATA_PATH}/garage/meta:/var/lib/garage/meta:ro
-      - garage-keys:/run/garage-keys
-      - ./init/scripts/garage/garage-init.sh:/garage-init.sh:ro
-    environment:
-      - S3_BUCKET=${S3_BUCKET}
-      - S3_REGION=${S3_REGION}
-    # Remove sleep infinity if you don't want the init container to keep running after setup for garage cli access
-    entrypoint: [ "/bin/sh", "-c", "/garage-init.sh && sleep infinity" ]
 
   # PostgreSQL - catalog/metadata storage
   postgres:
@@ -119,5 +92,3 @@ networks:
 volumes:
   ducklake-postgres-data:
   netbird-client:
-  garage-keys:
-  garage-config:
